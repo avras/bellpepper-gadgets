@@ -9,15 +9,15 @@ use crate::field_element::EmulatedLimbs;
 use crate::util::{bigint_to_scalar, decompose};
 use crate::{field_element::EmulatedFieldElement, field_element::EmulatedFieldParams};
 
-impl<F, P> EmulatedFieldElement<F, P>
+impl<Scalar, P> EmulatedFieldElement<Scalar, P>
 where
-    F: PrimeField + PrimeFieldBits,
+    Scalar: PrimeField + PrimeFieldBits,
     P: EmulatedFieldParams,
 {
     /// Computes the remainder modulo the field modulus
     pub(crate) fn compute_rem<CS>(&self, cs: &mut CS) -> Result<Self, SynthesisError>
     where
-        CS: ConstraintSystem<F>,
+        CS: ConstraintSystem<Scalar>,
     {
         let a_int: BigInt = self.into();
         let p = P::modulus();
@@ -38,7 +38,7 @@ where
     /// Computes the quotient
     pub(crate) fn compute_quotient<CS>(&self, cs: &mut CS) -> Result<Self, SynthesisError>
     where
-        CS: ConstraintSystem<F>,
+        CS: ConstraintSystem<Scalar>,
     {
         // TODO: Check the need for the "+ 1"
         let num_res_limbs = (self.len()*P::bits_per_limb() + self.overflow + 1
@@ -51,12 +51,12 @@ where
         let k_int = a_int.div(p);
         let k_int_limbs = decompose(&k_int, P::bits_per_limb(), num_res_limbs)?;
 
-        let res_limb_values: Vec<F> = k_int_limbs
+        let res_limb_values: Vec<Scalar> = k_int_limbs
             .into_iter()
             .map(|i| bigint_to_scalar(&i))
-            .collect::<Vec<F>>();
+            .collect::<Vec<Scalar>>();
 
-        let res_limbs = EmulatedLimbs::<F>::allocate_limbs(
+        let res_limbs = EmulatedLimbs::<Scalar>::allocate_limbs(
             &mut cs.namespace(|| "allocate from quotient value"),
             &res_limb_values,
         )?;
@@ -72,7 +72,7 @@ where
     /// Computes the multiplicative inverse
     pub(crate) fn compute_inverse<CS>(&self, cs: &mut CS) -> Result<Self, SynthesisError>
     where
-        CS: ConstraintSystem<F>,
+        CS: ConstraintSystem<Scalar>,
     {
         let mut a_int: BigInt = self.into();
         let p = P::modulus();
@@ -105,7 +105,7 @@ where
         other: &Self,
     ) -> Result<Self, SynthesisError>
     where
-        CS: ConstraintSystem<F>,
+        CS: ConstraintSystem<Scalar>,
     {
         let numer_int: BigInt = self.into();
         let mut denom_int: BigInt = other.into();

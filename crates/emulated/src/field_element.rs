@@ -14,30 +14,30 @@ use num_traits::{One, Signed, Zero};
 use crate::util::*;
 
 #[derive(Debug)]
-pub enum EmulatedLimbs<F: PrimeField + PrimeFieldBits> {
-    Allocated(Vec<Num<F>>),
-    Constant(Vec<F>),
+pub enum EmulatedLimbs<Scalar: PrimeField + PrimeFieldBits> {
+    Allocated(Vec<Num<Scalar>>),
+    Constant(Vec<Scalar>),
 }
 
-impl<F> From<Vec<F>> for EmulatedLimbs<F>
+impl<Scalar> From<Vec<Scalar>> for EmulatedLimbs<Scalar>
 where
-    F: PrimeField + PrimeFieldBits,
+    Scalar: PrimeField + PrimeFieldBits,
 {
-    fn from(value: Vec<F>) -> Self {
+    fn from(value: Vec<Scalar>) -> Self {
         Self::Constant(value)
     }
 }
 
-impl<F> AsRef<Self> for EmulatedLimbs<F>
+impl<Scalar> AsRef<Self> for EmulatedLimbs<Scalar>
 where
-    F: PrimeField + PrimeFieldBits,
+    Scalar: PrimeField + PrimeFieldBits,
 {
     fn as_ref(&self) -> &Self {
         self
     }
 }
 
-impl<F: PrimeField + PrimeFieldBits> Clone for EmulatedLimbs<F> {
+impl<Scalar: PrimeField + PrimeFieldBits> Clone for EmulatedLimbs<Scalar> {
     fn clone(&self) -> Self {
         match self {
             Self::Allocated(a) => Self::Allocated(a.clone()),
@@ -46,20 +46,23 @@ impl<F: PrimeField + PrimeFieldBits> Clone for EmulatedLimbs<F> {
     }
 }
 
-impl<F> EmulatedLimbs<F>
+impl<Scalar> EmulatedLimbs<Scalar>
 where
-    F: PrimeField + PrimeFieldBits,
+    Scalar: PrimeField + PrimeFieldBits,
 {
-    pub(crate) fn allocate_limbs<CS>(cs: &mut CS, limb_values: &[F]) -> Result<Self, SynthesisError>
+    pub(crate) fn allocate_limbs<CS>(
+        cs: &mut CS,
+        limb_values: &[Scalar],
+    ) -> Result<Self, SynthesisError>
     where
-        CS: ConstraintSystem<F>,
+        CS: ConstraintSystem<Scalar>,
     {
-        let mut num_vec: Vec<Num<F>> = vec![];
+        let mut num_vec: Vec<Num<Scalar>> = vec![];
 
         for (i, v) in limb_values.iter().enumerate() {
             let allocated_limb =
                 AllocatedNum::alloc(cs.namespace(|| format!("allocating limb {i}")), || Ok(*v))?;
-            num_vec.push(Num::<F>::from(allocated_limb));
+            num_vec.push(Num::<Scalar>::from(allocated_limb));
         }
 
         Ok(Self::Allocated(num_vec))
@@ -90,16 +93,16 @@ pub trait EmulatedFieldParams {
 
 #[allow(clippy::len_without_is_empty)]
 #[derive(Debug)]
-pub struct EmulatedFieldElement<F: PrimeField + PrimeFieldBits, P: EmulatedFieldParams> {
-    pub(crate) limbs: EmulatedLimbs<F>,
+pub struct EmulatedFieldElement<Scalar: PrimeField + PrimeFieldBits, P: EmulatedFieldParams> {
+    pub(crate) limbs: EmulatedLimbs<Scalar>,
     pub(crate) overflow: usize,
     pub(crate) internal: bool,
     pub(crate) marker: PhantomData<P>,
 }
 
-impl<F, P> Clone for EmulatedFieldElement<F, P>
+impl<Scalar, P> Clone for EmulatedFieldElement<Scalar, P>
 where
-    F: PrimeField + PrimeFieldBits,
+    Scalar: PrimeField + PrimeFieldBits,
     P: EmulatedFieldParams,
 {
     fn clone(&self) -> Self {
@@ -112,9 +115,9 @@ where
     }
 }
 
-impl<F, P> From<&BigInt> for EmulatedFieldElement<F, P>
+impl<Scalar, P> From<&BigInt> for EmulatedFieldElement<Scalar, P>
 where
-    F: PrimeField + PrimeFieldBits,
+    Scalar: PrimeField + PrimeFieldBits,
     P: EmulatedFieldParams,
 {
     /// Converts a [BigInt] into an [EmulatedFieldElement]
@@ -142,9 +145,9 @@ where
             }
         }
 
-        let mut limbs = vec![F::ZERO; P::num_limbs()];
+        let mut limbs = vec![Scalar::ZERO; P::num_limbs()];
         for i in 0..P::num_limbs() {
-            let mut coeff = F::ONE;
+            let mut coeff = Scalar::ONE;
             for j in 0..P::bits_per_limb() {
                 if v_bits[i * P::bits_per_limb() + j] {
                     limbs[i] += coeff
@@ -162,12 +165,12 @@ where
     }
 }
 
-impl<F, P> From<&EmulatedFieldElement<F, P>> for BigInt
+impl<Scalar, P> From<&EmulatedFieldElement<Scalar, P>> for BigInt
 where
-    F: PrimeField + PrimeFieldBits,
+    Scalar: PrimeField + PrimeFieldBits,
     P: EmulatedFieldParams,
 {
-    fn from(value: &EmulatedFieldElement<F, P>) -> Self {
+    fn from(value: &EmulatedFieldElement<Scalar, P>) -> Self {
         let mut res: BigUint = Zero::zero();
         let one: &BigUint = &One::one();
         let mut base: BigUint = one.clone();
@@ -186,9 +189,9 @@ where
     }
 }
 
-impl<F, P> EmulatedFieldElement<F, P>
+impl<Scalar, P> EmulatedFieldElement<Scalar, P>
 where
-    F: PrimeField + PrimeFieldBits,
+    Scalar: PrimeField + PrimeFieldBits,
     P: EmulatedFieldParams,
 {
     pub fn zero() -> Self {
@@ -204,10 +207,10 @@ where
     }
 
     pub fn max_overflow() -> usize {
-        F::CAPACITY as usize - P::bits_per_limb()
+        Scalar::CAPACITY as usize - P::bits_per_limb()
     }
 
-    pub fn new_internal_element(limbs: EmulatedLimbs<F>, overflow: usize) -> Self {
+    pub fn new_internal_element(limbs: EmulatedLimbs<Scalar>, overflow: usize) -> Self {
         Self {
             limbs,
             overflow,
@@ -227,12 +230,12 @@ where
         matches!(self.limbs, EmulatedLimbs::Constant(_))
     }
 
-    pub fn allocate_limbs<CS>(&self, cs: &mut CS) -> Result<EmulatedLimbs<F>, SynthesisError>
+    pub fn allocate_limbs<CS>(&self, cs: &mut CS) -> Result<EmulatedLimbs<Scalar>, SynthesisError>
     where
-        CS: ConstraintSystem<F>,
+        CS: ConstraintSystem<Scalar>,
     {
         if let EmulatedLimbs::Constant(limb_values) = &self.limbs {
-            EmulatedLimbs::<F>::allocate_limbs(
+            EmulatedLimbs::<Scalar>::allocate_limbs(
                 &mut cs.namespace(|| "allocate variables from constant limbs"),
                 limb_values,
             )
@@ -249,7 +252,7 @@ where
     /// `alloc_num_equals_constant` and `AND`s them all together.
     pub fn alloc_is_zero<CS>(&self, cs: &mut CS) -> Result<AllocatedBit, SynthesisError>
     where
-        CS: ConstraintSystem<F>,
+        CS: ConstraintSystem<Scalar>,
     {
         if self.is_constant() {
             // FIXME: it's not necessarily unsat, could do the comparison like the other cases and allocate a constant bit
@@ -273,7 +276,7 @@ where
                 let new_allocated_limb_bit = alloc_num_equals_constant(
                     &mut cs.namespace(|| format!("alloc limb is_zero {i}")),
                     v,
-                    F::ZERO,
+                    Scalar::ZERO,
                 )?;
                 if let Some(prev_allocated_limb_bit) = prev_allocated_limb_bit {
                     final_bit = Some(AllocatedBit::and(
@@ -300,7 +303,7 @@ where
     /// that are known to be in the field.
     pub fn allocate_field_element_unchecked<CS>(&self, cs: &mut CS) -> Result<Self, SynthesisError>
     where
-        CS: ConstraintSystem<F>,
+        CS: ConstraintSystem<Scalar>,
     {
         if self.is_constant() {
             // Below statement does not perform a in-circuit check as the input is a constant
@@ -331,7 +334,7 @@ where
     /// be equal to P::num_limbs()
     fn enforce_width<CS>(&self, cs: &mut CS, modulus_width: bool) -> Result<(), SynthesisError>
     where
-        CS: ConstraintSystem<F>,
+        CS: ConstraintSystem<Scalar>,
     {
         if let EmulatedLimbs::Constant(limb_values) = &self.limbs {
             if limb_values.len() != P::num_limbs() {
@@ -379,7 +382,7 @@ where
     /// width less than or equal to the most significant limb of the modulus.
     pub(crate) fn enforce_width_conditional<CS>(&self, cs: &mut CS) -> Result<bool, SynthesisError>
     where
-        CS: ConstraintSystem<F>,
+        CS: ConstraintSystem<Scalar>,
     {
         if self.internal {
             return Ok(false);
@@ -400,11 +403,11 @@ where
     /// width less than or equal to the most significant limb of the modulus.
     pub(crate) fn pack_limbs<CS>(
         cs: &mut CS,
-        limbs: EmulatedLimbs<F>,
+        limbs: EmulatedLimbs<Scalar>,
         strict: bool,
     ) -> Result<Self, SynthesisError>
     where
-        CS: ConstraintSystem<F>,
+        CS: ConstraintSystem<Scalar>,
     {
         let elem = Self::new_internal_element(limbs, 0);
         elem.enforce_width(&mut cs.namespace(|| "pack limbs"), strict)?;
@@ -415,7 +418,7 @@ where
         &self,
         group_size: usize,
         new_bits_per_limb: usize,
-    ) -> Result<EmulatedLimbs<F>, SynthesisError> {
+    ) -> Result<EmulatedLimbs<Scalar>, SynthesisError> {
         if P::bits_per_limb() == new_bits_per_limb {
             return Ok(self.limbs.clone());
         }
@@ -424,7 +427,7 @@ where
             return Err(SynthesisError::Unsatisfiable);
         }
 
-        if let EmulatedLimbs::<F>::Allocated(allocated_limbs) = &self.limbs {
+        if let EmulatedLimbs::<Scalar>::Allocated(allocated_limbs) = &self.limbs {
             let mut coeffs = vec![];
             for i in 0..group_size {
                 coeffs.push(bigint_to_scalar(
@@ -433,7 +436,7 @@ where
             }
 
             let new_num_limbs = (P::num_limbs() + group_size - 1) / group_size;
-            let mut res = vec![Num::<F>::zero(); new_num_limbs];
+            let mut res = vec![Num::<Scalar>::zero(); new_num_limbs];
 
             for i in 0..new_num_limbs {
                 for j in 0..group_size {
@@ -453,7 +456,7 @@ where
 
     pub fn check_field_membership<CS>(&self, cs: &mut CS) -> Result<(), SynthesisError>
     where
-        CS: ConstraintSystem<F>,
+        CS: ConstraintSystem<Scalar>,
     {
         if self.is_constant() {
             if BigInt::from(self) < P::modulus() {
@@ -563,7 +566,7 @@ where
         condition: &Boolean,
     ) -> Result<Self, SynthesisError>
     where
-        CS: ConstraintSystem<F>,
+        CS: ConstraintSystem<Scalar>,
     {
         if a1.len() != a0.len() {
             eprintln!(
@@ -600,23 +603,23 @@ where
             EmulatedLimbs::Allocated(res_limbs) => {
                 for i in 0..res_values.len() {
                     let a1_lc = match &a1.limbs {
-                        EmulatedLimbs::Allocated(a1_var) => a1_var[i].lc(F::ONE),
+                        EmulatedLimbs::Allocated(a1_var) => a1_var[i].lc(Scalar::ONE),
                         EmulatedLimbs::Constant(a1_const) => {
-                            LinearCombination::<F>::from_coeff(CS::one(), a1_const[i])
+                            LinearCombination::<Scalar>::from_coeff(CS::one(), a1_const[i])
                         }
                     };
                     let a0_lc = match &a0.limbs {
-                        EmulatedLimbs::Allocated(a0_var) => a0_var[i].lc(F::ONE),
+                        EmulatedLimbs::Allocated(a0_var) => a0_var[i].lc(Scalar::ONE),
                         EmulatedLimbs::Constant(a0_const) => {
-                            LinearCombination::<F>::from_coeff(CS::one(), a0_const[i])
+                            LinearCombination::<Scalar>::from_coeff(CS::one(), a0_const[i])
                         }
                     };
 
                     cs.enforce(
                         || format!("conditional select constraint on limb {i}"),
                         |lc| lc + &a1_lc - &a0_lc,
-                        |_| condition.lc(CS::one(), F::ONE),
-                        |lc| lc + &res_limbs[i].lc(F::ONE) - &a0_lc,
+                        |_| condition.lc(CS::one(), Scalar::ONE),
+                        |lc| lc + &res_limbs[i].lc(Scalar::ONE) - &a0_lc,
                     );
                 }
             }
@@ -635,7 +638,7 @@ where
         inputs: &[Self],
     ) -> Result<Self, SynthesisError>
     where
-        CS: ConstraintSystem<F>,
+        CS: ConstraintSystem<Scalar>,
     {
         if let Some(bit) = select_bits.next() {
             if inputs.len() & 1 != 0 {

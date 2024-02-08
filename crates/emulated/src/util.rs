@@ -8,18 +8,18 @@ use num_bigint::BigInt;
 use num_traits::{One, Signed, Zero};
 
 /// Range check a Num
-pub fn range_check_num<F, CS>(
+pub fn range_check_num<Scalar, CS>(
     cs: &mut CS,
-    num: &Num<F>,
+    num: &Num<Scalar>,
     num_bits: usize,
 ) -> Result<(), SynthesisError>
 where
-    F: PrimeField + PrimeFieldBits,
-    CS: ConstraintSystem<F>,
+    Scalar: PrimeField + PrimeFieldBits,
+    CS: ConstraintSystem<Scalar>,
 {
     range_check_lc(
         cs,
-        &num.lc(F::ONE),
+        &num.lc(Scalar::ONE),
         num.get_value().unwrap_or_default(),
         num_bits,
     )
@@ -28,15 +28,15 @@ where
 /// Range check an expression represented by a LinearCombination
 ///
 /// From `fits_in_bits` of `bellperson-nonnative`
-pub fn range_check_lc<F, CS>(
+pub fn range_check_lc<Scalar, CS>(
     cs: &mut CS,
-    lc_input: &LinearCombination<F>,
-    lc_value: F,
+    lc_input: &LinearCombination<Scalar>,
+    lc_value: Scalar,
     num_bits: usize,
 ) -> Result<(), SynthesisError>
 where
-    F: PrimeField + PrimeFieldBits,
-    CS: ConstraintSystem<F>,
+    Scalar: PrimeField + PrimeFieldBits,
+    CS: ConstraintSystem<Scalar>,
 {
     let value_bits = lc_value.to_le_bits();
 
@@ -46,7 +46,11 @@ where
             cs.alloc(
                 || format!("bit {i}"),
                 || {
-                    let r = if value_bits[i] { F::ONE } else { F::ZERO };
+                    let r = if value_bits[i] {
+                        Scalar::ONE
+                    } else {
+                        Scalar::ZERO
+                    };
                     Ok(r)
                 },
             )
@@ -66,7 +70,7 @@ where
     cs.enforce(
         || "last bit of variable is a bit".to_string(),
         |mut lc| {
-            let mut f = F::ONE;
+            let mut f = Scalar::ONE;
             lc = lc + lc_input;
             for v in bits.iter() {
                 f = f.double();
@@ -76,7 +80,7 @@ where
         },
         |mut lc| {
             lc = lc + CS::one();
-            let mut f = F::ONE;
+            let mut f = Scalar::ONE;
             lc = lc - lc_input;
             for v in bits.iter() {
                 f = f.double();
@@ -91,13 +95,13 @@ where
 }
 
 /// Range check a constant field element
-pub fn range_check_constant<F>(value: F, num_bits: usize) -> Result<(), SynthesisError>
+pub fn range_check_constant<Scalar>(value: Scalar, num_bits: usize) -> Result<(), SynthesisError>
 where
-    F: PrimeField + PrimeFieldBits,
+    Scalar: PrimeField + PrimeFieldBits,
 {
     let value_bits = value.to_le_bits();
-    let mut res = F::ZERO;
-    let mut coeff = F::ONE;
+    let mut res = Scalar::ZERO;
+    let mut coeff = Scalar::ONE;
     for i in 0..num_bits {
         if value_bits[i] {
             res += coeff;
@@ -115,10 +119,10 @@ where
 /// Check that a Num equals a constant and return a bit
 ///
 /// Based on `alloc_num_equals` in `Nova/src/gadgets/utils.rs`
-pub fn alloc_num_equals_constant<F: PrimeField, CS: ConstraintSystem<F>>(
+pub fn alloc_num_equals_constant<Scalar: PrimeField, CS: ConstraintSystem<Scalar>>(
     mut cs: CS,
-    a: &Num<F>,
-    b: F,
+    a: &Num<Scalar>,
+    b: Scalar,
 ) -> Result<AllocatedBit, SynthesisError> {
     // Allocate and constrain `r`: result boolean bit.
     // It equals `true` if `a` equals `b`, `false` otherwise
@@ -127,7 +131,7 @@ pub fn alloc_num_equals_constant<F: PrimeField, CS: ConstraintSystem<F>>(
 
     // Allocate t s.t. t=1 if a == b else 1/(a - b)
     let t_value = if a_value == b {
-        F::ONE
+        Scalar::ONE
     } else {
         (a_value - b).invert().unwrap()
     };
@@ -136,14 +140,14 @@ pub fn alloc_num_equals_constant<F: PrimeField, CS: ConstraintSystem<F>>(
     cs.enforce(
         || "t*(a - b) = 1 - r",
         |lc| lc + t.get_variable(),
-        |lc| lc + &a.lc(F::ONE) - &LinearCombination::from_coeff(CS::one(), b),
+        |lc| lc + &a.lc(Scalar::ONE) - &LinearCombination::from_coeff(CS::one(), b),
         |lc| lc + CS::one() - r.get_variable(),
     );
 
     cs.enforce(
         || "r*(a - b) = 0",
         |lc| lc + r.get_variable(),
-        |lc| lc + &a.lc(F::ONE) - &LinearCombination::from_coeff(CS::one(), b),
+        |lc| lc + &a.lc(Scalar::ONE) - &LinearCombination::from_coeff(CS::one(), b),
         |lc| lc,
     );
 
@@ -151,21 +155,21 @@ pub fn alloc_num_equals_constant<F: PrimeField, CS: ConstraintSystem<F>>(
 }
 
 /// Convert a non-negative BigInt into a field element
-pub fn bigint_to_scalar<F>(value: &BigInt) -> F
+pub fn bigint_to_scalar<Scalar>(value: &BigInt) -> Scalar
 where
-    F: PrimeField + PrimeFieldBits,
+    Scalar: PrimeField + PrimeFieldBits,
 {
-    assert!(value.bits() as u32 <= F::CAPACITY);
+    assert!(value.bits() as u32 <= Scalar::CAPACITY);
     assert!(!value.is_negative());
 
-    let mut base = F::from(u64::MAX);
-    base += F::ONE; // 2^64 in the field
-    let mut coeff = F::ONE;
-    let mut res = F::ZERO;
+    let mut base = Scalar::from(u64::MAX);
+    base += Scalar::ONE; // 2^64 in the field
+    let mut coeff = Scalar::ONE;
+    let mut res = Scalar::ZERO;
 
     let (_sign, digits) = value.to_u64_digits();
     for d in digits.into_iter() {
-        let d_f = F::from(d);
+        let d_f = Scalar::from(d);
         res += d_f * coeff;
         coeff *= base;
     }

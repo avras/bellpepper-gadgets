@@ -38,18 +38,18 @@ impl Debug for OverflowError {
     }
 }
 
-impl<F, P> EmulatedFieldElement<F, P>
+impl<Scalar, P> EmulatedFieldElement<Scalar, P>
 where
-    F: PrimeField + PrimeFieldBits,
+    Scalar: PrimeField + PrimeFieldBits,
     P: EmulatedFieldParams,
 {
     fn compact(
         a: &Self,
         b: &Self,
-    ) -> Result<(EmulatedLimbs<F>, EmulatedLimbs<F>, usize), SynthesisError> {
+    ) -> Result<(EmulatedLimbs<Scalar>, EmulatedLimbs<Scalar>, usize), SynthesisError> {
         let max_overflow = a.overflow.max(b.overflow);
         // Substract one bit to account for overflow due to grouping in compact_limbs
-        let max_num_bits = F::CAPACITY as usize - 1 - max_overflow;
+        let max_num_bits = Scalar::CAPACITY as usize - 1 - max_overflow;
         let group_size = max_num_bits / P::bits_per_limb();
 
         if group_size == 0 {
@@ -68,23 +68,23 @@ where
     /// This is a costly operation as it performs bit decomposition of the limbs.
     fn assert_limbs_equality_slow<CS>(
         cs: &mut CS,
-        a: &EmulatedLimbs<F>,
-        b: &EmulatedLimbs<F>,
+        a: &EmulatedLimbs<Scalar>,
+        b: &EmulatedLimbs<Scalar>,
         num_bits_per_limb: usize,
         num_carry_bits: usize,
     ) -> Result<(), SynthesisError>
     where
-        CS: ConstraintSystem<F>,
+        CS: ConstraintSystem<Scalar>,
     {
         if let (EmulatedLimbs::Allocated(a_l), EmulatedLimbs::Allocated(b_l)) = (a, b) {
             let num_limbs = a_l.len().max(b_l.len());
             let max_value =
-                bigint_to_scalar::<F>(&BigInt::one().shl(num_bits_per_limb + num_carry_bits));
-            let max_value_shift = bigint_to_scalar::<F>(&BigInt::one().shl(num_carry_bits));
+                bigint_to_scalar::<Scalar>(&BigInt::one().shl(num_bits_per_limb + num_carry_bits));
+            let max_value_shift = bigint_to_scalar::<Scalar>(&BigInt::one().shl(num_carry_bits));
 
-            let mut carry = Num::<F>::zero();
+            let mut carry = Num::<Scalar>::zero();
             for i in 0..num_limbs {
-                let mut diff_num = carry.add(&Num::<F>::zero().add_bool_with_coeff(
+                let mut diff_num = carry.add(&Num::<Scalar>::zero().add_bool_with_coeff(
                     CS::one(),
                     &Boolean::Constant(true),
                     max_value,
@@ -94,7 +94,7 @@ where
                 }
                 if i < b_l.len() {
                     let mut neg_bl = b_l[i].clone();
-                    neg_bl = neg_bl.scale(-F::ONE);
+                    neg_bl = neg_bl.scale(-Scalar::ONE);
                     diff_num = diff_num.add(&neg_bl);
                 }
                 if i > 0 {
@@ -121,12 +121,12 @@ where
 
     fn right_shift<CS>(
         cs: &mut CS,
-        v: &Num<F>,
+        v: &Num<Scalar>,
         start_digit: usize,
         end_digit: usize,
-    ) -> Result<Num<F>, SynthesisError>
+    ) -> Result<Num<Scalar>, SynthesisError>
     where
-        CS: ConstraintSystem<F>,
+        CS: ConstraintSystem<Scalar>,
     {
         let v_value = v.get_value().unwrap();
         let mut v_bits = v_value
@@ -143,10 +143,10 @@ where
             v_booleans.push(Boolean::from(alloc_bit));
         }
 
-        let mut sum_higher_order_bits = Num::<F>::zero();
-        let mut sum_shifted_bits = Num::<F>::zero();
-        let mut coeff = bigint_to_scalar::<F>(&(BigInt::one() << start_digit));
-        let mut coeff_shifted = F::ONE;
+        let mut sum_higher_order_bits = Num::<Scalar>::zero();
+        let mut sum_shifted_bits = Num::<Scalar>::zero();
+        let mut coeff = bigint_to_scalar::<Scalar>(&(BigInt::one() << start_digit));
+        let mut coeff_shifted = Scalar::ONE;
 
         for b in v_booleans {
             sum_higher_order_bits = sum_higher_order_bits.add_bool_with_coeff(CS::one(), &b, coeff);
@@ -159,7 +159,7 @@ where
             || "enforce equality between input value and weighted sum of higher order bits",
             |lc| lc,
             |lc| lc,
-            |lc| lc + &v.lc(F::ONE) - &sum_higher_order_bits.lc(F::ONE),
+            |lc| lc + &v.lc(Scalar::ONE) - &sum_higher_order_bits.lc(Scalar::ONE),
         );
 
         Ok(sum_shifted_bits)
@@ -170,7 +170,7 @@ where
     /// For allocated inputs, it does not ensure that the values are equal modulo the field order.
     fn assert_limbs_equality<CS>(cs: &mut CS, a: &Self, b: &Self) -> Result<(), SynthesisError>
     where
-        CS: ConstraintSystem<F>,
+        CS: ConstraintSystem<Scalar>,
     {
         a.enforce_width_conditional(&mut cs.namespace(|| "ensure bitwidths in a"))?;
         b.enforce_width_conditional(&mut cs.namespace(|| "ensure bitwidths in b"))?;
@@ -211,7 +211,7 @@ where
     /// Asserts that the limbs represent the same integer value modulo the modulus.
     pub fn assert_is_equal<CS>(cs: &mut CS, a: &Self, b: &Self) -> Result<(), SynthesisError>
     where
-        CS: ConstraintSystem<F>,
+        CS: ConstraintSystem<Scalar>,
     {
         if a.is_constant() && b.is_constant() {
             let a_i = BigInt::from(a);
@@ -251,7 +251,7 @@ where
         constant: &Self,
     ) -> Result<(), SynthesisError>
     where
-        CS: ConstraintSystem<F>,
+        CS: ConstraintSystem<Scalar>,
     {
         if self.is_constant() || !constant.is_constant() {
             eprintln!(
@@ -276,7 +276,7 @@ where
                         || format!("checking equality of limb {i}"),
                         |lc| lc,
                         |lc| lc,
-                        |lc| lc + &var_limbs[i].lc(F::ONE) - (const_limbs[i], CS::one()),
+                        |lc| lc + &var_limbs[i].lc(Scalar::ONE) - (const_limbs[i], CS::one()),
                     );
                 }
             }
@@ -288,7 +288,7 @@ where
 
     pub fn reduce<CS>(&self, cs: &mut CS) -> Result<Self, SynthesisError>
     where
-        CS: ConstraintSystem<F>,
+        CS: ConstraintSystem<Scalar>,
     {
         assert!(self.overflow + 2 <= Self::max_overflow(),
                 "Not enough bits in native field to accomodate a subtraction operation which is performed during reduce: {} > {}",
@@ -328,7 +328,7 @@ where
 
     fn add_op<CS>(a: &Self, b: &Self, next_overflow: usize) -> Self
     where
-        CS: ConstraintSystem<F>,
+        CS: ConstraintSystem<Scalar>,
     {
         if a.is_constant() && b.is_constant() {
             let a_int = BigInt::from(a);
@@ -338,7 +338,7 @@ where
         }
 
         let num_res_limbs = a.len().max(b.len());
-        let mut res: Vec<Num<F>> = vec![Num::<F>::zero(); num_res_limbs];
+        let mut res: Vec<Num<Scalar>> = vec![Num::<Scalar>::zero(); num_res_limbs];
 
         match (a.limbs.clone(), b.limbs.clone()) {
             (EmulatedLimbs::Constant(const_limbs), EmulatedLimbs::Allocated(var_limbs))
@@ -376,7 +376,7 @@ where
 
     pub fn add<CS>(&self, cs: &mut CS, other: &Self) -> Result<Self, SynthesisError>
     where
-        CS: ConstraintSystem<F>,
+        CS: ConstraintSystem<Scalar>,
     {
         Self::reduce_and_apply_op(
             &mut cs.namespace(|| "compute a + b"),
@@ -406,7 +406,7 @@ where
     /// Underflow may occur when computing a - b. Let d = [d[0], d[1], ...] be the padding.
     /// If d is a multiple of P::modulus() that is greater than b, then
     /// (a[0]+d[0]-b[0], a[1]+d[1]-b[1],...) will not underflow
-    fn sub_padding(overflow: usize, limb_count: usize) -> Result<Vec<F>, SynthesisError> {
+    fn sub_padding(overflow: usize, limb_count: usize) -> Result<Vec<Scalar>, SynthesisError> {
         let tmp = BigInt::one() << (overflow + P::bits_per_limb());
         let upper_bound_limbs = vec![tmp; limb_count];
 
@@ -421,14 +421,14 @@ where
             .into_iter()
             .zip(padding_delta)
             .map(|(a, b)| bigint_to_scalar(&(a + b)))
-            .collect::<Vec<F>>();
+            .collect::<Vec<Scalar>>();
 
         Ok(padding_limbs)
     }
 
     fn sub_op<CS>(a: &Self, b: &Self, next_overflow: usize) -> Result<Self, SynthesisError>
     where
-        CS: ConstraintSystem<F>,
+        CS: ConstraintSystem<Scalar>,
     {
         if a.is_constant() && b.is_constant() {
             let a_int = BigInt::from(a);
@@ -438,10 +438,10 @@ where
         }
 
         let num_res_limbs = a.len().max(b.len());
-        let mut res: Vec<Num<F>> = vec![];
+        let mut res: Vec<Num<Scalar>> = vec![];
         let pad_limbs = Self::sub_padding(b.overflow, num_res_limbs)?;
         for limb in pad_limbs.into_iter() {
-            res.push(Num::<F>::zero().add_bool_with_coeff(
+            res.push(Num::<Scalar>::zero().add_bool_with_coeff(
                 CS::one(),
                 &Boolean::Constant(true),
                 limb,
@@ -474,7 +474,7 @@ where
                     }
                     if i < b_var.len() {
                         let mut neg_bl = b_var[i].clone();
-                        neg_bl = neg_bl.scale(-F::ONE);
+                        neg_bl = neg_bl.scale(-Scalar::ONE);
                         res[i] = res[i].clone().add(&neg_bl);
                     }
                 }
@@ -486,7 +486,7 @@ where
                     }
                     if i < b_var.len() {
                         let mut neg_bl = b_var[i].clone();
-                        neg_bl = neg_bl.scale(-F::ONE);
+                        neg_bl = neg_bl.scale(-Scalar::ONE);
                         res[i] = res[i].clone().add(&neg_bl);
                     }
                 }
@@ -504,7 +504,7 @@ where
 
     pub fn sub<CS>(&self, cs: &mut CS, other: &Self) -> Result<Self, SynthesisError>
     where
-        CS: ConstraintSystem<F>,
+        CS: ConstraintSystem<Scalar>,
     {
         Self::reduce_and_apply_op(
             &mut cs.namespace(|| "compute a - b"),
@@ -516,7 +516,7 @@ where
 
     pub fn neg<CS>(&self, cs: &mut CS) -> Result<Self, SynthesisError>
     where
-        CS: ConstraintSystem<F>,
+        CS: ConstraintSystem<Scalar>,
     {
         let zero = Self::zero();
         zero.sub(&mut cs.namespace(|| "negate"), self)
@@ -524,9 +524,9 @@ where
 
     fn mul_precondition(a: &Self, b: &Self) -> Result<usize, OverflowError> {
         assert!(
-            2 * P::bits_per_limb() <= F::CAPACITY as usize,
+            2 * P::bits_per_limb() <= Scalar::CAPACITY as usize,
             "Not enough bits in native field to accomodate a product of limbs: {} < {}",
-            F::CAPACITY,
+            Scalar::CAPACITY,
             2 * P::bits_per_limb(),
         );
         let reduce_right = a.overflow < b.overflow;
@@ -551,7 +551,7 @@ where
         next_overflow: usize,
     ) -> Result<Self, SynthesisError>
     where
-        CS: ConstraintSystem<F>,
+        CS: ConstraintSystem<Scalar>,
     {
         if a.is_constant() && b.is_constant() {
             let a_int = BigInt::from(a);
@@ -561,8 +561,8 @@ where
         }
 
         let num_prod_limbs = a.len() + b.len() - 1;
-        let mut prod: Vec<Num<F>> = vec![Num::<F>::zero(); num_prod_limbs];
-        let mut prod_values: Vec<F> = vec![F::ZERO; num_prod_limbs];
+        let mut prod: Vec<Num<Scalar>> = vec![Num::<Scalar>::zero(); num_prod_limbs];
+        let mut prod_values: Vec<Scalar> = vec![Scalar::ZERO; num_prod_limbs];
 
         match (a.limbs.clone(), b.limbs.clone()) {
             (EmulatedLimbs::Constant(const_limbs), EmulatedLimbs::Allocated(var_limbs))
@@ -576,11 +576,11 @@ where
                 }
             }
             (EmulatedLimbs::Allocated(a_var), EmulatedLimbs::Allocated(b_var)) => {
-                let a_var_limb_values: Vec<F> = a_var
+                let a_var_limb_values: Vec<Scalar> = a_var
                     .iter()
                     .map(|v| v.get_value().unwrap_or_default())
                     .collect();
-                let b_var_limb_values: Vec<F> = b_var
+                let b_var_limb_values: Vec<Scalar> = b_var
                     .iter()
                     .map(|v| v.get_value().unwrap_or_default())
                     .collect();
@@ -590,7 +590,7 @@ where
                     }
                 }
 
-                let prod_allocated_nums: Vec<AllocatedNum<F>> = (0..num_prod_limbs)
+                let prod_allocated_nums: Vec<AllocatedNum<Scalar>> = (0..num_prod_limbs)
                     .map(|i| {
                         AllocatedNum::alloc(cs.namespace(|| format!("product limb {i}")), || {
                             Ok(prod_values[i])
@@ -600,15 +600,15 @@ where
 
                 prod = prod_allocated_nums.into_iter().map(Num::from).collect();
 
-                let mut c = F::ZERO;
+                let mut c = Scalar::ZERO;
                 for _ in 0..num_prod_limbs {
-                    c += F::ONE;
+                    c += Scalar::ONE;
                     cs.enforce(
                         || format!("pointwise product @ {c:?}"),
                         |lc| {
-                            let mut coeff = F::ONE;
-                            let a_lcs: Vec<LinearCombination<F>> =
-                                a_var.iter().map(|x| x.lc(F::ONE)).collect();
+                            let mut coeff = Scalar::ONE;
+                            let a_lcs: Vec<LinearCombination<Scalar>> =
+                                a_var.iter().map(|x| x.lc(Scalar::ONE)).collect();
 
                             a_lcs.iter().fold(lc, |acc, elem| {
                                 let r = acc + (coeff, elem);
@@ -617,9 +617,9 @@ where
                             })
                         },
                         |lc| {
-                            let mut coeff = F::ONE;
-                            let b_lcs: Vec<LinearCombination<F>> =
-                                b_var.iter().map(|x| x.lc(F::ONE)).collect();
+                            let mut coeff = Scalar::ONE;
+                            let b_lcs: Vec<LinearCombination<Scalar>> =
+                                b_var.iter().map(|x| x.lc(Scalar::ONE)).collect();
 
                             b_lcs.iter().fold(lc, |acc, elem| {
                                 let r = acc + (coeff, elem);
@@ -628,9 +628,9 @@ where
                             })
                         },
                         |lc| {
-                            let mut coeff = F::ONE;
-                            let prod_lcs: Vec<LinearCombination<F>> =
-                                prod.iter().map(|x| x.lc(F::ONE)).collect();
+                            let mut coeff = Scalar::ONE;
+                            let prod_lcs: Vec<LinearCombination<Scalar>> =
+                                prod.iter().map(|x| x.lc(Scalar::ONE)).collect();
 
                             prod_lcs.iter().fold(lc, |acc, elem| {
                                 let r = acc + (coeff, elem);
@@ -654,7 +654,7 @@ where
 
     pub fn mul<CS>(&self, cs: &mut CS, other: &Self) -> Result<Self, SynthesisError>
     where
-        CS: ConstraintSystem<F>,
+        CS: ConstraintSystem<Scalar>,
     {
         let mut prod = Self::reduce_and_apply_op(
             &mut cs.namespace(|| "compute a * b"),
@@ -668,7 +668,7 @@ where
 
     pub fn mul_const<CS>(&self, cs: &mut CS, constant: &BigInt) -> Result<Self, SynthesisError>
     where
-        CS: ConstraintSystem<F>,
+        CS: ConstraintSystem<Scalar>,
     {
         if constant.bits() as usize > Self::max_overflow() {
             eprintln!(
@@ -687,7 +687,7 @@ where
             self.clone()
         };
 
-        let mut prod: Vec<Num<F>> = vec![];
+        let mut prod: Vec<Num<Scalar>> = vec![];
         let constant_scalar = bigint_to_scalar(constant);
 
         match elem.limbs {
@@ -709,7 +709,7 @@ where
 
     pub fn inverse<CS>(&self, cs: &mut CS) -> Result<Self, SynthesisError>
     where
-        CS: ConstraintSystem<F>,
+        CS: ConstraintSystem<Scalar>,
     {
         let a_inv = self.compute_inverse(&mut cs.namespace(|| "multiplicative inverse"))?;
         let prod = self.mul(&mut cs.namespace(|| "product of a and a_inv"), &a_inv)?;
@@ -724,7 +724,7 @@ where
 
     pub fn divide<CS>(&self, cs: &mut CS, denom: &Self) -> Result<Self, SynthesisError>
     where
-        CS: ConstraintSystem<F>,
+        CS: ConstraintSystem<Scalar>,
     {
         let ratio = self.compute_ratio(&mut cs.namespace(|| "ratio"), denom)?;
         let prod = ratio.mul(
@@ -742,7 +742,7 @@ where
 
     pub fn fold_limbs<CS>(&mut self, cs: &mut CS) -> Result<(), SynthesisError>
     where
-        CS: ConstraintSystem<F>,
+        CS: ConstraintSystem<Scalar>,
     {
         // No folding algorithm for non-pseudo Mersenne primes; this method becomes a no-op
         if !P::is_modulus_pseudo_mersenne() {
@@ -819,7 +819,7 @@ where
         b: &Self,
     ) -> Result<Self, SynthesisError>
     where
-        CS: ConstraintSystem<F>,
+        CS: ConstraintSystem<Scalar>,
     {
         a.enforce_width_conditional(&mut cs.namespace(|| "ensure bitwidths in a"))?;
         b.enforce_width_conditional(&mut cs.namespace(|| "ensure bitwidths in b"))?;
