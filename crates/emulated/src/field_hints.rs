@@ -46,19 +46,21 @@ where
             + P::bits_per_limb() - 1) /         // This term is to round up to next integer
             P::bits_per_limb();
 
-        let a_int: BigInt = self.into();
-        let p = P::modulus();
-        let k_int = a_int.div(p);
-        let k_int_limbs = decompose(&k_int, P::bits_per_limb(), num_res_limbs)?;
-
-        let res_limb_values: Vec<Scalar> = k_int_limbs
-            .into_iter()
-            .map(|i| bigint_to_scalar(&i))
-            .collect::<Vec<Scalar>>();
-
         let res_limbs = EmulatedLimbs::<Scalar>::allocate_limbs(
             &mut cs.namespace(|| "allocate from quotient value"),
-            &res_limb_values,
+            || {
+                let a_int: BigInt = self.into();
+                let p = P::modulus();
+                let k_int = a_int.div(p);
+                let k_int_limbs = decompose(&k_int, P::bits_per_limb(), num_res_limbs)?;
+
+                let res_limb_values: Vec<Scalar> = k_int_limbs
+                    .into_iter()
+                    .map(|i| bigint_to_scalar(&i))
+                    .collect::<Vec<Scalar>>();
+                Ok(res_limb_values)
+            },
+            num_res_limbs,
         )?;
 
         let res = Self::pack_limbs(

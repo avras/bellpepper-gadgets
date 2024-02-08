@@ -1,6 +1,7 @@
 use std::vec;
 use std::{marker::PhantomData, ops::Rem};
 
+use bellpepper::gadgets::Assignment;
 use bellpepper_core::num::AllocatedNum;
 use bellpepper_core::{
     boolean::{AllocatedBit, Boolean},
@@ -50,20 +51,45 @@ impl<Scalar> EmulatedLimbs<Scalar>
 where
     Scalar: PrimeField + PrimeFieldBits,
 {
-    pub(crate) fn allocate_limbs<CS>(
+    pub(crate) fn allocate_limbs<CS, F>(
         cs: &mut CS,
-        limb_values: &[Scalar],
+        f: F,
+        num_limbs: usize,
     ) -> Result<Self, SynthesisError>
     where
         CS: ConstraintSystem<Scalar>,
+        F: FnOnce() -> Result<Vec<Scalar>, SynthesisError>,
     {
-        let mut num_vec: Vec<Num<Scalar>> = vec![];
+        let limb_values = f();
 
-        for (i, v) in limb_values.iter().enumerate() {
-            let allocated_limb =
-                AllocatedNum::alloc(cs.namespace(|| format!("allocating limb {i}")), || Ok(*v))?;
-            num_vec.push(Num::<Scalar>::from(allocated_limb));
-        }
+        let allocated_num_vec = (0..num_limbs)
+            .map(|limb_index| {
+                AllocatedNum::alloc(
+                    cs.namespace(|| format!("allocating limb {limb_index}")),
+                    || match limb_values {
+                        Ok(ref limb_values_vec) => {
+                            if limb_values_vec.len() != num_limbs {
+                                eprintln!("Limb counts do not match");
+                                return Err(SynthesisError::Unsatisfiable);
+                            }
+                            Ok(limb_values_vec[limb_index])
+                        }
+                        // SynthesisError does not implement Clone
+                        // The following workaround is from
+                        // Nova/src/gadgets/nonnative/bignat.rs:alloc_from_limbs
+                        Err(ref e) => Err(SynthesisError::from(std::io::Error::new(
+                            std::io::ErrorKind::Other,
+                            format!("{e}"),
+                        ))),
+                    },
+                )
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+
+        let num_vec = allocated_num_vec
+            .into_iter()
+            .map(Num::<Scalar>::from)
+            .collect::<Vec<_>>();
 
         Ok(Self::Allocated(num_vec))
     }
@@ -237,7 +263,8 @@ where
         if let EmulatedLimbs::Constant(limb_values) = &self.limbs {
             EmulatedLimbs::<Scalar>::allocate_limbs(
                 &mut cs.namespace(|| "allocate variables from constant limbs"),
-                limb_values,
+                || Ok(limb_values.clone()),
+                limb_values.len(),
             )
         } else {
             eprintln!("input must have constant limb values");
@@ -576,32 +603,34 @@ where
         }
         let res_overflow = a1.overflow.max(a0.overflow);
 
-        let res_values = if condition.get_value().unwrap() {
-            match &a1.limbs {
-                EmulatedLimbs::Allocated(a1_var) => a1_var
-                    .iter()
-                    .map(|x| x.get_value().unwrap_or_default())
-                    .collect::<Vec<_>>(),
-                EmulatedLimbs::Constant(a1_const) => a1_const.clone(),
-            }
-        } else {
-            match &a0.limbs {
-                EmulatedLimbs::Allocated(a0_var) => a0_var
-                    .iter()
-                    .map(|x| x.get_value().unwrap_or_default())
-                    .collect::<Vec<_>>(),
-                EmulatedLimbs::Constant(a0_const) => a0_const.clone(),
-            }
-        };
-
         let res_alloc_limbs = EmulatedLimbs::allocate_limbs(
             &mut cs.namespace(|| "allocate result limbs"),
-            &res_values,
+            || {
+                let res_limbs = if *condition.get_value().get()? {
+                    &a1.limbs
+                } else {
+                    &a0.limbs
+                };
+                match res_limbs {
+                    EmulatedLimbs::Allocated(alloc_limbs) => {
+                        let mut vs = vec![];
+                        for limb in alloc_limbs {
+                            match limb.get_value() {
+                                Some(val) => vs.push(val),
+                                None => return Err(SynthesisError::AssignmentMissing),
+                            }
+                        }
+                        Ok(vs)
+                    }
+                    EmulatedLimbs::Constant(const_limbs) => Ok(const_limbs.clone()),
+                }
+            },
+            a0.len(),
         )?;
 
         match &res_alloc_limbs {
             EmulatedLimbs::Allocated(res_limbs) => {
-                for i in 0..res_values.len() {
+                for i in 0..res_limbs.len() {
                     let a1_lc = match &a1.limbs {
                         EmulatedLimbs::Allocated(a1_var) => a1_var[i].lc(Scalar::ONE),
                         EmulatedLimbs::Constant(a1_const) => {
