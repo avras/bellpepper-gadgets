@@ -7,6 +7,8 @@ use ff::{PrimeField, PrimeFieldBits};
 use num_bigint::BigInt;
 use num_traits::{One, Signed, Zero};
 
+use crate::field_element::EmulatedFieldParams;
+
 /// Range check a Num
 pub fn range_check_num<Scalar, CS>(
     cs: &mut CS,
@@ -174,6 +176,43 @@ where
         coeff *= base;
     }
     res
+}
+
+pub fn bigint_to_scalar_limbs<Scalar, P>(value: &BigInt) -> Vec<Scalar>
+where
+    Scalar: PrimeField + PrimeFieldBits,
+    P: EmulatedFieldParams,
+{
+    let mut v = value.clone();
+    assert!(!v.is_negative());
+
+    if v > P::modulus() {
+        v = v.rem(P::modulus());
+    }
+
+    assert!(v.bits() <= (P::num_limbs() * P::bits_per_limb()) as u64);
+    let mut v_bits: Vec<bool> = vec![false; P::num_limbs() * P::bits_per_limb()];
+
+    let v_bytes = v.to_biguint().map(|w| w.to_bytes_le()).unwrap();
+    for (i, b) in v_bytes.into_iter().enumerate() {
+        for j in 0..8usize {
+            if b & (1u8 << j) != 0 {
+                v_bits[i * 8 + j] = true;
+            }
+        }
+    }
+
+    let mut limbs = vec![Scalar::ZERO; P::num_limbs()];
+    for i in 0..P::num_limbs() {
+        let mut coeff = Scalar::ONE;
+        for j in 0..P::bits_per_limb() {
+            if v_bits[i * P::bits_per_limb() + j] {
+                limbs[i] += coeff
+            }
+            coeff = coeff.double();
+        }
+    }
+    limbs
 }
 
 /// Construct a [BigInt] from a vector of [BigInt] limbs with base equal to 2^num_bits_per_limb

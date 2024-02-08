@@ -6,7 +6,7 @@ use num_bigint::BigInt;
 use num_traits::Zero;
 
 use crate::field_element::EmulatedLimbs;
-use crate::util::{bigint_to_scalar, decompose};
+use crate::util::{bigint_to_scalar, bigint_to_scalar_limbs, decompose};
 use crate::{field_element::EmulatedFieldElement, field_element::EmulatedFieldParams};
 
 impl<Scalar, P> EmulatedFieldElement<Scalar, P>
@@ -19,13 +19,16 @@ where
     where
         CS: ConstraintSystem<Scalar>,
     {
-        let a_int: BigInt = self.into();
-        let p = P::modulus();
-        let r_int = a_int.rem(p);
-        let r_value = Self::from(&r_int);
-
-        let res_limbs =
-            r_value.allocate_limbs(&mut cs.namespace(|| "allocate from remainder value"))?;
+        let res_limbs = EmulatedLimbs::allocate_limbs(
+            &mut cs.namespace(|| "allocate from remainder value"),
+            || {
+                let a_int: BigInt = self.into();
+                let p = P::modulus();
+                let r_int = a_int.rem(p);
+                Ok(bigint_to_scalar_limbs::<Scalar, P>(&r_int))
+            },
+            P::num_limbs(),
+        )?;
 
         let res = Self::pack_limbs(
             &mut cs.namespace(|| "enforce bitwidths on remainder"),
@@ -76,20 +79,23 @@ where
     where
         CS: ConstraintSystem<Scalar>,
     {
-        let mut a_int: BigInt = self.into();
-        let p = P::modulus();
-        a_int = a_int.rem(&p);
-        if a_int.is_zero() {
-            eprintln!("Inverse of zero element cannot be calculated");
-            return Err(SynthesisError::DivisionByZero);
-        }
-        let p_minus_2 = &p - BigInt::from(2);
-        // a^(p-1) = 1 mod p for non-zero a. So a^(-1) = a^(p-2)
-        let a_inv_int = a_int.modpow(&p_minus_2, &p);
-        let a_inv_value = Self::from(&a_inv_int);
-
-        let a_inv_limbs =
-            a_inv_value.allocate_limbs(&mut cs.namespace(|| "allocate from inverse value"))?;
+        let a_inv_limbs = EmulatedLimbs::allocate_limbs(
+            &mut cs.namespace(|| "allocate from inverse value"),
+            || {
+                let mut a_int: BigInt = self.into();
+                let p = P::modulus();
+                a_int = a_int.rem(&p);
+                if a_int.is_zero() {
+                    eprintln!("Inverse of zero element cannot be calculated");
+                    return Err(SynthesisError::DivisionByZero);
+                }
+                let p_minus_2 = &p - BigInt::from(2);
+                // a^(p-1) = 1 mod p for non-zero a. So a^(-1) = a^(p-2)
+                let a_inv_int = a_int.modpow(&p_minus_2, &p);
+                Ok(bigint_to_scalar_limbs::<Scalar, P>(&a_inv_int))
+            },
+            P::num_limbs(),
+        )?;
 
         let a_inv = Self::pack_limbs(
             &mut cs.namespace(|| "enforce bitwidths on inverse"),
@@ -109,23 +115,25 @@ where
     where
         CS: ConstraintSystem<Scalar>,
     {
-        let numer_int: BigInt = self.into();
-        let mut denom_int: BigInt = other.into();
-        let p = P::modulus();
-        denom_int = denom_int.rem(&p);
-        if denom_int.is_zero() {
-            eprintln!("Inverse of zero element cannot be calculated");
-            return Err(SynthesisError::DivisionByZero);
-        }
-        let p_minus_2 = &p - BigInt::from(2);
-        // a^(p-1) = 1 mod p for non-zero a. So a^(-1) = a^(p-2)
-        let denom_inv_int = denom_int.modpow(&p_minus_2, &p);
-        let ratio_int = (numer_int * denom_inv_int).rem(&p);
-
-        let ratio_value = Self::from(&ratio_int);
-
-        let ratio_limbs =
-            ratio_value.allocate_limbs(&mut cs.namespace(|| "allocate from ratio value"))?;
+        let ratio_limbs = EmulatedLimbs::allocate_limbs(
+            &mut cs.namespace(|| "allocate from ratio value"),
+            || {
+                let numer_int: BigInt = self.into();
+                let mut denom_int: BigInt = other.into();
+                let p = P::modulus();
+                denom_int = denom_int.rem(&p);
+                if denom_int.is_zero() {
+                    eprintln!("Inverse of zero element cannot be calculated");
+                    return Err(SynthesisError::DivisionByZero);
+                }
+                let p_minus_2 = &p - BigInt::from(2);
+                // a^(p-1) = 1 mod p for non-zero a. So a^(-1) = a^(p-2)
+                let denom_inv_int = denom_int.modpow(&p_minus_2, &p);
+                let ratio_int = (numer_int * denom_inv_int).rem(&p);
+                Ok(bigint_to_scalar_limbs::<Scalar, P>(&ratio_int))
+            },
+            P::num_limbs(),
+        )?;
 
         let ratio = Self::pack_limbs(
             &mut cs.namespace(|| "enforce bitwidths on ratio"),

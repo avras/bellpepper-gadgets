@@ -256,22 +256,6 @@ where
         matches!(self.limbs, EmulatedLimbs::Constant(_))
     }
 
-    pub fn allocate_limbs<CS>(&self, cs: &mut CS) -> Result<EmulatedLimbs<Scalar>, SynthesisError>
-    where
-        CS: ConstraintSystem<Scalar>,
-    {
-        if let EmulatedLimbs::Constant(limb_values) = &self.limbs {
-            EmulatedLimbs::<Scalar>::allocate_limbs(
-                &mut cs.namespace(|| "allocate variables from constant limbs"),
-                || Ok(limb_values.clone()),
-                limb_values.len(),
-            )
-        } else {
-            eprintln!("input must have constant limb values");
-            Err(SynthesisError::Unsatisfiable)
-        }
-    }
-
     /// Allocates an `AllocatedBit` that is set if and only if the element is
     /// congruent to 0 modulo the field prime.
     ///
@@ -332,14 +316,17 @@ where
     where
         CS: ConstraintSystem<Scalar>,
     {
-        if self.is_constant() {
+        if let EmulatedLimbs::Constant(limb_values) = &self.limbs {
             // Below statement does not perform a in-circuit check as the input is a constant
             self.check_field_membership(
                 &mut cs.namespace(|| "check field membership of constant input"),
             )?;
 
-            let allocated_limbs = self
-                .allocate_limbs(&mut cs.namespace(|| "allocate variables from constant limbs"))?;
+            let allocated_limbs = EmulatedLimbs::allocate_limbs(
+                &mut cs.namespace(|| "allocate variables from constant limbs"),
+                || Ok(limb_values.clone()),
+                P::num_limbs(),
+            )?;
 
             let allocated_field_element = Self::new_internal_element(allocated_limbs, 0);
             Ok(allocated_field_element)
