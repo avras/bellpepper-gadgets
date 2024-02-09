@@ -18,5 +18,6 @@ num-bigint = { version = "0.4.3", features = ["rand"] }
 num-traits = "0.2.15"
 
 [dev-dependencies]
+nova-snark = "0.34.0"
 pasta_curves = { workspace = true }
 rand = { workspace = true }

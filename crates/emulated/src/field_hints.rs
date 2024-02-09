@@ -123,7 +123,6 @@ where
                 let p = P::modulus();
                 denom_int = denom_int.rem(&p);
                 if denom_int.is_zero() {
-                    eprintln!("Inverse of zero element cannot be calculated");
                     return Err(SynthesisError::DivisionByZero);
                 }
                 let p_minus_2 = &p - BigInt::from(2);
